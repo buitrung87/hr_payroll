@@ -200,6 +200,16 @@ class HrPayslip(models.Model):
             line.copy({"slip_id": rec.id, "input_ids": []})
         return rec
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Guard and diagnose missing mandatory Employee on create
+        for vals in vals_list:
+            if not vals.get("employee_id"):
+                _logger.error(
+                    "Attempt to create hr.payslip without employee_id. vals=%s", vals
+                )
+        return super().create(vals_list)
+
     def action_payslip_draft(self):
         return self.write({"state": "draft"})
 
@@ -630,45 +640,98 @@ class HrPayslip(models.Model):
                 "name": "",
                 "contract_id": False,
                 "struct_id": False,
+                "employee_id": employee_id or False,
             }
         }
         # If we don't have employee or date data, we return.
         if (not employee_id) or (not date_from) or (not date_to):
             return res
-        # We check if contract_id is present, if not we fill with the
-        # first contract of the employee. If not contract present, we return.
-        if not self.env.context.get("contract"):
-            contract_ids = employee.contract_id.ids
-        else:
+        # Chọn hợp đồng theo khoảng ngày; nếu không có, dùng các fallback mạnh hơn.
+        # Ưu tiên: context/contract_id -> hợp đồng 'open' trong khoảng -> 'open' hoặc 'close' -> incoming (draft, done) -> hợp đồng mới nhất không bị hủy.
+        contract_obj = self.env["hr.contract"]
+        contract_ids = []
+        if self.env.context.get("contract"):
             if contract_id:
                 contract_ids = [contract_id]
             else:
                 contract_ids = employee._get_contracts(
                     date_from=date_from, date_to=date_to
                 ).ids
-        if not contract_ids:
-            return res
-        contract = self.env["hr.contract"].browse(contract_ids[0])
-        res["value"].update({"contract_id": contract.id})
-        # We check if struct_id is already filled, otherwise we assign the contract struct. # noqa: E501
-        # If contract don't have a struct, we return.
-        if struct_id:
-            res["value"].update({"struct_id": struct_id[0]})
         else:
-            struct = contract.struct_id
-            if not struct:
-                return res
-            res["value"].update({"struct_id": struct.id})
+            contract_ids = employee._get_contracts(
+                date_from=date_from, date_to=date_to
+            ).ids
+        if not contract_ids:
+            # thử với cả 'open' và 'close'
+            contract_ids = employee._get_contracts(
+                date_from=date_from, date_to=date_to, states=["open", "close"]
+            ).ids
+        if not contract_ids:
+            # thử hợp đồng sắp đến (draft đã xác nhận)
+            try:
+                contract_ids = employee._get_incoming_contracts(
+                    date_from=date_from, date_to=date_to
+                ).ids
+            except Exception:
+                contract_ids = []
+        if not contract_ids:
+            # cuối cùng: lấy hợp đồng mới nhất không bị hủy, trùng khoảng nếu có
+            last_contract = contract_obj.search(
+                [
+                    ("employee_id", "=", employee.id),
+                    ("state", "!=", "cancel"),
+                    ("date_start", "<=", date_to),
+                    "|",
+                    ("date_end", "=", False),
+                    ("date_end", ">=", date_from),
+                ],
+                order="date_start desc",
+                limit=1,
+            )
+            if last_contract:
+                contract_ids = last_contract.ids
+        # cập nhật contract nếu tìm thấy; nếu không, giữ False để wizard có thể xử lý tiếp
+        if contract_ids:
+            contract = contract_obj.browse(contract_ids[0])
+            res["value"].update({"contract_id": contract.id})
+        # We check if struct_id is already filled, otherwise we assign the contract struct.
+        # Accept struct_id as int, recordset, or sequence; if contract doesn't have a struct, return.
+        # xử lý struct_id: nếu có tham số, ưu tiên dùng; nếu không, dùng từ hợp đồng (nếu có)
+        if struct_id:
+            # Normalize struct_id to an integer id
+            try:
+                if hasattr(struct_id, "id"):
+                    normalized_struct_id = struct_id.id
+                elif isinstance(struct_id, (list, tuple)):
+                    normalized_struct_id = struct_id[0]
+                else:
+                    normalized_struct_id = int(struct_id)
+                res["value"].update({"struct_id": normalized_struct_id})
+            except Exception:
+                # Fallback to contract struct if normalization fails
+                if contract_ids:
+                    struct = contract.struct_id
+                    if struct:
+                        res["value"].update({"struct_id": struct.id})
+        else:
+            if contract_ids:
+                struct = contract.struct_id
+                if struct:
+                    res["value"].update({"struct_id": struct.id})
         # Computation of the salary input and worked_day_lines
-        contracts = self.env["hr.contract"].browse(contract_ids)
-        worked_days_line_ids = self.get_worked_day_lines(contracts, date_from, date_to)
-        input_line_ids = self.get_inputs(contracts, date_from, date_to)
-        res["value"].update(
-            {
-                "worked_days_line_ids": worked_days_line_ids,
-                "input_line_ids": input_line_ids,
-            }
-        )
+        # Chỉ tính worked days và inputs nếu có hợp đồng
+        if contract_ids:
+            contracts = self.env["hr.contract"].browse(contract_ids)
+            worked_days_line_ids = self.get_worked_day_lines(
+                contracts, date_from, date_to
+            )
+            input_line_ids = self.get_inputs(contracts, date_from, date_to)
+            res["value"].update(
+                {
+                    "worked_days_line_ids": worked_days_line_ids,
+                    "input_line_ids": input_line_ids,
+                }
+            )
         return res
 
     def _sum_salary_rule_category(self, localdict, category, amount):

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Salary Rule Categories -->
+    <record id="sample_cat_BASIC" model="hr.salary.rule.category">
+        <field name="name">Basic</field>
+        <field name="code">BASIC</field>
+    </record>
+    <record id="sample_cat_INS" model="hr.salary.rule.category">
+        <field name="name">Social Insurance</field>
+        <field name="code">INS</field>
+    </record>
+    <record id="sample_cat_PIT" model="hr.salary.rule.category">
+        <field name="name">Personal Income Tax</field>
+        <field name="code">PIT</field>
+    </record>
+    <record id="sample_cat_ALW" model="hr.salary.rule.category">
+        <field name="name">Allowance</field>
+        <field name="code">ALW</field>
+    </record>
+    <record id="sample_cat_OT" model="hr.salary.rule.category">
+        <field name="name">Overtime</field>
+        <field name="code">OT</field>
+    </record>
+    <record id="sample_cat_NET" model="hr.salary.rule.category">
+        <field name="name">Net</field>
+        <field name="code">NET</field>
+    </record>
+
+    <!-- Salary Rules -->
+    <!-- 1) Basic: result = contract.wage -->
+    <record id="sample_rule_BASIC" model="hr.salary.rule">
+        <field name="name">Basic Salary</field>
+        <field name="sequence" eval="100"/>
+        <field name="code">BASIC</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_BASIC"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = contract.wage</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- 2) Social insurance = BASIC * 10.5% (positive, will be subtracted in NET) -->
+    <record id="sample_rule_SOC_INS" model="hr.salary.rule">
+        <field name="name">Social Insurance (10.5% of BASIC)</field>
+        <field name="sequence" eval="200"/>
+        <field name="code">SOC_INS</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_INS"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">percentage</field>
+        <field name="amount_percentage" eval="10.5"/>
+        <field name="amount_percentage_base">categories.BASIC</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- 3) PIT (Personal Income Tax) theo thang lũy tiến đơn giản -->
+    <record id="sample_rule_PIT" model="hr.salary.rule">
+        <field name="name">Personal Income Tax (Vietnam brackets)</field>
+        <field name="sequence" eval="300"/>
+        <field name="code">PIT</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_PIT"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">pit_base = (contract.wage or 0.0) - (categories.INS or 0.0) - (11000000.0 + ((employee.children or 0) * 4400000.0))
+pit_income = pit_base if pit_base &gt; 0.0 else 0.0
+if pit_income &lt;= 5000000.0:
+    result = pit_income * 0.05
+elif pit_income &lt;= 10000000.0:
+    result = pit_income * 0.10
+elif pit_income &lt;= 18000000.0:
+    result = pit_income * 0.15
+elif pit_income &lt;= 32000000.0:
+    result = pit_income * 0.20
+elif pit_income &lt;= 52000000.0:
+    result = pit_income * 0.25
+elif pit_income &lt;= 80000000.0:
+    result = pit_income * 0.30
+else:
+    result = pit_income * 0.35</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- 4) Allowance = tổng các allowance trong contract (module hr_contract_extend) -->
+    <record id="sample_rule_ALW_SUM" model="hr.salary.rule">
+        <field name="name">Total Allowances (contract)</field>
+        <field name="sequence" eval="400"/>
+        <field name="code">ALLOW</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_ALW"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = (contract.x_allowance_meal or 0.0) + (contract.x_allowance_house or 0.0) + (contract.x_allowance_phone or 0.0) + (contract.x_allowance_uniform or 0.0) + (contract.x_allowance_transportation or 0.0)</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- 5) Overtime = input ATT_HOURS (mặc định 0 nếu không nhập) -->
+    <record id="sample_rule_OT" model="hr.salary.rule">
+        <field name="name">Overtime (from ATT_HOURS input)</field>
+        <field name="sequence" eval="500"/>
+        <field name="code">OT</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_OT"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = (inputs.ATT_HOURS and inputs.ATT_HOURS.amount) or 0.0</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- Khai báo input ATT_HOURS cho rule OT -->
+    <record id="sample_input_ATT_HOURS" model="hr.rule.input">
+        <field name="name">Attendance Hours</field>
+        <field name="code">ATT_HOURS</field>
+        <field name="input_id" ref="hr_payroll.sample_rule_OT"/>
+    </record>
+
+    <!-- 6) NET = BASIC - INS - PIT + ALW + OT -->
+    <record id="sample_rule_NET" model="hr.salary.rule">
+        <field name="name">Net Salary</field>
+        <field name="sequence" eval="900"/>
+        <field name="code">NET</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_NET"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = (categories.BASIC or 0.0) - (categories.INS or 0.0) - (categories.PIT or 0.0) + (categories.ALW or 0.0) + (categories.OT or 0.0)</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- Payroll Structure bao gồm các rule trên -->
+    <record id="sample_structure" model="hr.payroll.structure">
+        <field name="code">SAMPLE</field>
+        <field name="name">EUSU Payroll Structure (Vietnam)</field>
+        <field name="rule_ids" eval="[(6, 0, [
+            ref('hr_payroll.sample_rule_BASIC'),
+            ref('hr_payroll.sample_rule_SOC_INS'),
+            ref('hr_payroll.sample_rule_PIT'),
+            ref('hr_payroll.sample_rule_ALW_SUM'),
+            ref('hr_payroll.sample_rule_OT'),
+            ref('hr_payroll.sample_rule_NET')
+        ])]"/>
+    </record>
+</odoo>
