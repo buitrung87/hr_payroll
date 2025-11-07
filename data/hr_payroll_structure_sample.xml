@@ -9,6 +9,18 @@
         <field name="name">Social Insurance</field>
         <field name="code">INS</field>
     </record>
+    <record id="sample_cat_NO_DEP" model="hr.salary.rule.category">
+        <field name="name">No.Dependants</field>
+        <field name="code">NO.DEP</field>
+    </record>
+    <record id="sample_cat_DEP" model="hr.salary.rule.category">
+        <field name="name">Dependants</field>
+        <field name="code">DEP</field>
+    </record>
+    <record id="sample_cat_IFPIT" model="hr.salary.rule.category">
+        <field name="name">Income For PIT</field>
+        <field name="code">IFPIT</field>
+    </record>
     <record id="sample_cat_PIT" model="hr.salary.rule.category">
         <field name="name">Personal Income Tax</field>
         <field name="code">PIT</field>
@@ -52,10 +64,45 @@
         <field name="quantity">1.0</field>
     </record>
 
-    <!-- 3) PIT (Personal Income Tax) theo thang lũy tiến đơn giản -->
+     <!-- 3) No. Dependants = Số người phụ thuộc -->
+    <record id="sample_rule_NO_DEP" model="hr.salary.rule">
+        <field name="name">No.Dependants</field>
+        <field name="sequence" eval="300"/>
+        <field name="code">NO.DEP</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_NO_DEP"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = (employee.children or 0.0)</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+ <!-- 4) Dependants = Số Tiền được miễn trừ thuế dựa trên người phụ thuộc -->
+    <record id="sample_rule_DEP" model="hr.salary.rule">
+        <field name="name">Dependants</field>
+        <field name="sequence" eval="400"/>
+        <field name="code">DEP</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_DEP"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = 11000000.0 + ((employee.children or 0) * 4400000.0)</field>
+        <field name="quantity">1.0</field>
+    </record>
+<!-- 5) Dependants = Số Tiền chịu thuế PIT -->
+ <record id="sample_rule_IFPIT" model="hr.salary.rule">
+        <field name="name">Income For PIT</field>
+        <field name="sequence" eval="500"/>
+        <field name="code">IFPIT</field>
+        <field name="category_id" ref="hr_payroll.sample_cat_IFPIT"/>
+        <field name="condition_select">none</field>
+        <field name="amount_select">code</field>
+        <field name="amount_python_compute">result = (contract.wage or 0.0) - (categories.INS or 0.0) - (11000000.0 + ((employee.children or 0) * 4400000.0))</field>
+        <field name="quantity">1.0</field>
+    </record>
+
+    <!-- 6) PIT (Personal Income Tax) theo thang lũy tiến đơn giản -->
     <record id="sample_rule_PIT" model="hr.salary.rule">
         <field name="name">Personal Income Tax (Vietnam brackets)</field>
-        <field name="sequence" eval="300"/>
+        <field name="sequence" eval="600"/>
         <field name="code">PIT</field>
         <field name="category_id" ref="hr_payroll.sample_cat_PIT"/>
         <field name="condition_select">none</field>
@@ -79,10 +126,10 @@ else:
         <field name="quantity">1.0</field>
     </record>
 
-    <!-- 4) Allowance = tổng các allowance trong contract (module hr_contract_extend) -->
+    <!-- 7) Allowance = tổng các allowance trong contract (module hr_contract_extend) -->
     <record id="sample_rule_ALW_SUM" model="hr.salary.rule">
         <field name="name">Total Allowances (contract)</field>
-        <field name="sequence" eval="400"/>
+        <field name="sequence" eval="700"/>
         <field name="code">ALLOW</field>
         <field name="category_id" ref="hr_payroll.sample_cat_ALW"/>
         <field name="condition_select">none</field>
@@ -91,26 +138,33 @@ else:
         <field name="quantity">1.0</field>
     </record>
 
-    <!-- 5) Overtime = input ATT_HOURS (mặc định 0 nếu không nhập) -->
+    <!-- 8) Overtime = input ATT_HOURS (mặc định 0 nếu không nhập) -->
     <record id="sample_rule_OT" model="hr.salary.rule">
-        <field name="name">Overtime (from ATT_HOURS input)</field>
-        <field name="sequence" eval="500"/>
+        <field name="name">Overtime</field>
+        <field name="sequence" eval="800"/>
         <field name="code">OT</field>
         <field name="category_id" ref="hr_payroll.sample_cat_OT"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
-        <field name="amount_python_compute">result = (inputs.ATT_HOURS and inputs.ATT_HOURS.amount) or 0.0</field>
+        <field name="amount_python_compute"><![CDATA[
+result = 0.0
+# Lấy OT trực tiếp từ module hr_attendance_load_f18 (hr.overtime)
+# Chỉ tính các bản ghi đã được approved trong khoảng ngày của payslip
+if payslip and employee:
+    ot_records = payslip.env['hr.overtime'].search([
+        ('employee_id', '=', employee.id),
+        ('date', '>=', payslip.date_from),
+        ('date', '<=', payslip.date_to),
+        ('state', '=', 'approved'),
+    ])
+    result = sum(ot_records.mapped('overtime_hours')) or 0.0
+        ]]></field>
         <field name="quantity">1.0</field>
     </record>
 
-    <!-- Khai báo input ATT_HOURS cho rule OT -->
-    <record id="sample_input_ATT_HOURS" model="hr.rule.input">
-        <field name="name">Attendance Hours</field>
-        <field name="code">ATT_HOURS</field>
-        <field name="input_id" ref="hr_payroll.sample_rule_OT"/>
-    </record>
+    <!-- ATT_HOURS input không còn cần thiết vì rule OT lấy trực tiếp từ hr.overtime -->
 
-    <!-- 6) NET = BASIC - INS - PIT + ALW + OT -->
+    <!-- 9) NET = BASIC - INS - PIT + ALW + OT -->
     <record id="sample_rule_NET" model="hr.salary.rule">
         <field name="name">Net Salary</field>
         <field name="sequence" eval="900"/>
@@ -129,6 +183,9 @@ else:
         <field name="rule_ids" eval="[(6, 0, [
             ref('hr_payroll.sample_rule_BASIC'),
             ref('hr_payroll.sample_rule_SOC_INS'),
+            ref('hr_payroll.sample_rule_NO_DEP'),
+            ref('hr_payroll.sample_rule_DEP'),
+            ref('hr_payroll.sample_rule_IFPIT'),
             ref('hr_payroll.sample_rule_PIT'),
             ref('hr_payroll.sample_rule_ALW_SUM'),
             ref('hr_payroll.sample_rule_OT'),
