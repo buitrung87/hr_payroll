@@ -94,3 +94,43 @@ Current `maintainers <https://odoo-community.org/page/maintainer-role>`__:
 This module is part of the `OCA/payroll <https://github.com/OCA/payroll/tree/18.0/payroll>`_ project on GitHub.
 
 You are welcome to contribute. To learn how please visit https://odoo-community.org/page/Contribute.
+
+
+Cách cài wkhtmltopdf 0.12.6 cho Odoo 18 (Ubuntu)
+
+
+cd /tmp
+wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb
+Cài đặt file này bằng dpkg
+sudo dpkg -i /tmp/wkhtmltox_0.12.6-1.focal_amd64.deb
+Nếu xuất hiện lỗi “dependency problems”, sửa bằng:
+sudo apt -f install -y
+
+Bước 4: Cấu hình đường dẫn trong Odoo
+
+Mở file config:
+
+sudo nano /etc/odoo18.conf
+
+
+Thêm hoặc kiểm tra dòng:
+
+report.url = http://localhost:8069
+
+Kiểm tra vị trí cài đặt
+
+Sau khi cài, chạy:
+
+whereis wkhtmltopdf
+
+
+Nếu bạn thấy đường dẫn như:
+
+wkhtmltopdf: /usr/local/bin/wkhtmltopdf
+
+
+→ Tốt. Nếu không thấy gì, ta tạo link thủ công:
+
+sudo ln -s /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf
+
+https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
