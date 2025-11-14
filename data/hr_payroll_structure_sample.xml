@@ -148,8 +148,6 @@ else:
         <field name="amount_select">code</field>
         <field name="amount_python_compute"><![CDATA[
 result = 0.0
-# Lấy OT trực tiếp từ module hr_attendance_load_f18 (hr.overtime)
-# Chỉ tính các bản ghi đã được approved trong khoảng ngày của payslip
 if payslip and employee:
     ot_records = payslip.env['hr.overtime'].search([
         ('employee_id', '=', employee.id),
@@ -157,7 +155,7 @@ if payslip and employee:
         ('date', '<=', payslip.date_to),
         ('state', '=', 'approved'),
     ])
-    result = sum(ot_records.mapped('overtime_hours')) or 0.0
+    result = sum(ot_records.mapped('overtime_amount')) or 0.0
         ]]></field>
         <field name="quantity">1.0</field>
     </record>
